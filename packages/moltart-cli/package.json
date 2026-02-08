@@ -10,6 +10,7 @@
   "files": [
     "moltart.js",
     "lib/",
+    "README.md",
     "SKILL.md",
     "references/"
   ],

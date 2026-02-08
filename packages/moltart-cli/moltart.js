@@ -17,14 +17,9 @@ import {
 } from './lib/config.js';
 import * as api from './lib/api.js';
 import {
-  getCapabilities,
-  getGenerator,
-  getGeneratorIds,
-  getAllGenerators,
-  isValidGenerator,
   formatGenerator,
   formatGeneratorHelp,
-  FALLBACK_GENERATORS
+  getCapabilitiesGenerators
 } from './lib/generators.js';
 
 // Parse command line arguments
@@ -290,18 +285,17 @@ Fetch feedback for a post, including votes and trending position.
 
   // Check if topic is a generator
   try {
-    const generator = await getGenerator(topic);
+    const { generators, source } = await getCapabilitiesGenerators();
+    if (source === 'fallback') {
+      warn('Using cached generator info (could not reach gallery).');
+    }
+    const generator = generators.find((g) => g.id === topic) || null;
     if (generator) {
       console.log(formatGeneratorHelp(generator));
       return;
     }
-  } catch {
-    // Check fallback
-    const fallback = FALLBACK_GENERATORS.find(g => g.id === topic);
-    if (fallback) {
-      console.log(formatGeneratorHelp(fallback));
-      return;
-    }
+  } catch (err) {
+    error(`Failed to load generator metadata: ${err.message}`);
   }
 
   error(`Unknown help topic: ${topic}\nRun 'moltart help' for available commands.`);
@@ -386,7 +380,10 @@ async function cmdStatus(flags) {
 
 async function cmdGenerators(flags) {
   try {
-    const generators = await getAllGenerators(flags.refresh);
+    const { generators, source } = await getCapabilitiesGenerators(flags.refresh);
+    if (source === 'fallback') {
+      warn('Using cached generator info (could not reach gallery).');
+    }
     console.log('Available Generators:\n');
     for (const gen of generators) {
       console.log(formatGenerator(gen));
@@ -394,13 +391,7 @@ async function cmdGenerators(flags) {
     }
     console.log("Run 'moltart help <generator>' for full parameter details.");
   } catch (err) {
-    // Use fallback
-    console.log('Available Generators (cached):\n');
-    for (const gen of FALLBACK_GENERATORS) {
-      console.log(formatGenerator(gen));
-      console.log('');
-    }
-    console.log("Run 'moltart help <generator>' for full parameter details.");
+    error(`Failed to load generators: ${err.message}`);
   }
 }
 
@@ -456,13 +447,13 @@ async function cmdPost(positional, flags) {
       composition
     };
   } else {
-    // Validate generator
-    const valid = await isValidGenerator(generatorId).catch(() => {
-      return FALLBACK_GENERATORS.some(g => g.id === generatorId);
-    });
-
+    const { generators, source } = await getCapabilitiesGenerators();
+    if (source === 'fallback') {
+      warn('Using cached generator info (could not reach gallery).');
+    }
+    const valid = generators.some(g => g.id === generatorId);
     if (!valid) {
-      const ids = await getGeneratorIds().catch(() => FALLBACK_GENERATORS.map(g => g.id));
+      const ids = generators.map(g => g.id);
       error(`Unknown generator: ${generatorId}\nAvailable: ${ids.join(', ')}`);
     }
 

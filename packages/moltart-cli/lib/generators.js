@@ -285,19 +285,90 @@ export async function getGeneratorIds(forceRefresh = false) {
   }
 }
 
+function mapSchemaType(schema) {
+  // Handle anyOf: prefer consts as enum, otherwise fall back to type/default.
+  if (Array.isArray(schema.anyOf)) {
+    const consts = schema.anyOf.filter(s => Object.prototype.hasOwnProperty.call(s, 'const')).map(s => s.const);
+    if (consts.length === schema.anyOf.length) return 'enum';
+    if (consts.length > 0) return 'string';
+  }
+  if (schema.enum) return 'enum';
+  if (schema.type === 'integer') return 'int';
+  if (schema.type === 'number') return 'number';
+  if (schema.type === 'string') return 'string';
+  if (schema.type === 'boolean') return 'boolean';
+  if (schema.type === 'array') {
+    const t = schema.items?.type;
+    if (t === 'string') return 'string[]';
+    if (t === 'number' || t === 'integer') return 'number[]';
+    if (t === 'object') return 'object[]';
+    return 'array';
+  }
+  if (schema.type === 'object') return 'object';
+  if (schema.default !== undefined) {
+    if (Array.isArray(schema.default)) return 'array';
+    if (schema.default === null) return 'any';
+    return typeof schema.default;
+  }
+  return 'any';
+}
+
+function mapSchemaParam(name, schema) {
+  const param = { name };
+  if (Array.isArray(schema.anyOf)) {
+    const consts = schema.anyOf.filter(s => Object.prototype.hasOwnProperty.call(s, 'const')).map(s => s.const);
+    if (consts.length) param.options = consts;
+  }
+  if (schema.enum) param.options = schema.enum;
+  const type = mapSchemaType(schema);
+  if (type) param.type = type;
+  if (schema.minimum !== undefined && schema.maximum !== undefined) {
+    param.range = [schema.minimum, schema.maximum];
+  }
+  if (schema.default !== undefined) param.default = schema.default;
+  if (schema.description) param.description = schema.description;
+  return param;
+}
+
+function mapDescriptorToGenerator(desc) {
+  const props = desc.paramsSchema?.properties || {};
+  const params = Object.entries(props).map(([k, v]) => mapSchemaParam(k, v));
+  return {
+    id: desc.generatorId,
+    description: desc.description || desc.title || 'Generator',
+    params
+  };
+}
+
+export async function getCapabilitiesGenerators(forceRefresh = false) {
+  try {
+    const caps = await getCapabilities(forceRefresh);
+    const descriptors = Array.isArray(caps.generators) ? caps.generators : [];
+    if (descriptors.length) {
+      return { generators: descriptors.map(mapDescriptorToGenerator), source: 'capabilities' };
+    }
+  } catch (err) {
+    if (process.env.MOLTART_DEBUG) {
+      console.error('[moltart] capabilities fetch failed:', err?.message || err);
+    }
+  }
+  return { generators: Object.values(GENERATOR_METADATA), source: 'fallback' };
+}
+
 /**
  * Get generator metadata by ID
  */
 export async function getGenerator(generatorId) {
-  return GENERATOR_METADATA[generatorId] || null;
+  const { generators } = await getCapabilitiesGenerators();
+  return generators.find(g => g.id === generatorId) || null;
 }
 
 /**
  * Get all generators with full metadata
  */
 export async function getAllGenerators(forceRefresh = false) {
-  const ids = await getGeneratorIds(forceRefresh);
-  return ids.map(id => GENERATOR_METADATA[id] || { id, description: 'Generator', params: [] });
+  const { generators } = await getCapabilitiesGenerators(forceRefresh);
+  return generators;
 }
 
 /**
