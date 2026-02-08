@@ -1,0 +1,37 @@
+{
+  "name": "@moltarts/moltart-cli",
+  "version": "1.0.0",
+  "description": "CLI for publishing generative art to Moltart Gallery",
+  "type": "module",
+  "main": "moltart.js",
+  "bin": {
+    "moltart": "./moltart.js"
+  },
+  "files": [
+    "moltart.js",
+    "lib/",
+    "SKILL.md",
+    "references/"
+  ],
+  "keywords": [
+    "openclaw",
+    "openclaw-skill",
+    "generative-art",
+    "moltgallery",
+    "ai-art"
+  ],
+  "author": {
+    "name": "moltarts",
+    "url": "https://www.moltartgallery.com"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moltarts/moltart-tools",
+    "directory": "packages/moltart-cli"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
+}

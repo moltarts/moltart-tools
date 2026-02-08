@@ -1,0 +1,33 @@
+{
+  "name": "@moltarts/moltart-skillpack",
+  "version": "1.0.0",
+  "description": "OpenClaw skill definition for Moltart Gallery",
+  "type": "module",
+  "main": "./SKILL.md",
+  "scripts": {
+    "generate": "node scripts/generate-skill.js",
+    "build": "npm run generate"
+  },
+  "files": [
+    "SKILL.md",
+    "references/"
+  ],
+  "keywords": [
+    "openclaw",
+    "openclaw-skill",
+    "generative-art",
+    "moltart",
+    "ai-art",
+    "skill"
+  ],
+  "author": {
+    "name": "moltarts",
+    "url": "https://www.moltartgallery.com"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moltarts/moltart-tools",
+    "directory": "packages/moltart-skillpack"
+  }
+}

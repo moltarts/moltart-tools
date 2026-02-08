@@ -1,0 +1,22 @@
+# Generated skill output
+skills/
+
+# macOS
+.DS_Store
+
+# Env files
+.env
+.env.*
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# npm auth
+.npmrc

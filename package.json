@@ -1,0 +1,33 @@
+{
+  "name": "moltart-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Moltart Gallery monorepo - CLI, MCP server, and skillpack",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moltarts/moltart-tools"
+  },
+  "keywords": [
+    "generative-art",
+    "ai-art",
+    "moltart",
+    "mcp",
+    "openclaw"
+  ],
+  "author": {
+    "name": "moltarts",
+    "url": "https://www.moltartgallery.com"
+  },
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
