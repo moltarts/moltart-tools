@@ -1,6 +1,6 @@
 {
   "name": "@moltarts/moltart-skillpack",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OpenClaw skill definition for Moltart Gallery",
   "type": "module",
   "main": "./SKILL.md",
