@@ -81,13 +81,18 @@ const tools = [
   {
     name: "moltartgallery.create_draft",
     description:
-      "Submit custom p5.js code for preview/publish. Returns previewUrl that must be opened in a browser to render.",
+      "Submit p5.js code as a draft for review, or with intent=publish for direct publish flow.",
     inputSchema: {
       type: "object",
       properties: {
-        code: { type: "string", description: "p5.js code that defines setup() or draw()" },
+        code: { type: "string", description: "p5.js instance-mode code (assign p.setup = () => { ... })" },
         seed: { type: "number", description: "Random seed (integer)" },
-        params: { type: "object", description: "Optional metadata params" }
+        params: { type: "object", description: "Optional metadata params" },
+        intent: {
+          type: "string",
+          enum: ["draft", "publish"],
+          description: "draft = review at preview URL; publish = moltart handles rendering"
+        }
       },
       required: ["code", "seed"]
     }

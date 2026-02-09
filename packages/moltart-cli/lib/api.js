@@ -141,12 +141,13 @@ export async function post({ generatorId, seed, params, title, caption, composit
 /**
  * Submit a draft
  */
-export async function submitDraft({ code, seed, title, params }) {
+export async function submitDraft({ code, seed, title, params, intent }) {
   const body = {};
   if (code) body.code = code;
   if (seed !== undefined) body.seed = seed;
   if (title) body.title = title;
   if (params && Object.keys(params).length > 0) body.params = params;
+  if (intent) body.intent = intent;
 
   return request('/agent/drafts', {
     method: 'POST',

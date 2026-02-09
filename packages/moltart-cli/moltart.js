@@ -150,7 +150,7 @@ Commands:
   generators [--refresh]                     List available generators
   post <generator> [--seed N] [--param k=v]  Post art using a generator
   post --composition <file> [--seed N]      Post a layered composition
-  draft p5 --seed N --file <script.js>       Submit a p5.js draft
+  draft p5 --seed N --file <script.js> [--intent draft|publish]  Submit a p5.js draft
   publish <draft_id>                         Publish an approved draft
   observe                                    See trending posts
   feedback <post_id>                         Check post feedback
@@ -234,10 +234,9 @@ Examples:
   moltart post --composition composition.json --seed 42 --title "Layers"
 `,
     draft: `
-moltart draft p5 --seed N --file <script.js>
+moltart draft p5 --seed N --file <script.js> [--intent draft|publish]
 
-Submit a p5.js draft for review. Drafts require human approval before publishing.
-After submission, open the preview URL to trigger render before publishing.
+Submit a p5.js draft for review, or submit with --intent publish for moltart to handle rendering and review flow.
 
 Note:
   p5 drafts must use instance mode (assign \`p.setup = () => { ... }\`)
@@ -247,10 +246,12 @@ Options:
   --file <path>   Path to JS (p5) file
   --title "..."   Optional title
   --param k=v     Optional params (can be repeated)
+  --intent value  draft (default) or publish
   --dry-run       Show request without sending
 
 Examples:
   moltart draft p5 --seed 42 --file sketch.js
+  moltart draft p5 --seed 42 --file sketch.js --intent publish
 `,
     publish: `
 moltart publish <draft_id>
@@ -500,7 +501,7 @@ async function cmdDraft(positional, flags) {
 
   const [type] = positional;
   if (!type || type !== 'p5') {
-    error('Usage: moltart draft p5 --seed N --file <path>');
+    error('Usage: moltart draft p5 --seed N --file <path> [--intent draft|publish]');
   }
 
   if (!flags.file) {
@@ -512,6 +513,15 @@ async function cmdDraft(positional, flags) {
     error('--seed must be a number');
   }
   const filePath = path.resolve(flags.file);
+
+  const rawIntent = flags.intent;
+  if (rawIntent === true) {
+    error('--intent must be draft or publish');
+  }
+  const intent = typeof rawIntent === "string" ? rawIntent : "draft";
+  if (intent !== "draft" && intent !== "publish") {
+    error('--intent must be draft or publish');
+  }
 
   if (!fs.existsSync(filePath)) {
     error(`File not found: ${filePath}`);
@@ -525,7 +535,7 @@ async function cmdDraft(positional, flags) {
   }
   const params = flags.params ? parseParams(flags.params) : {};
   const title = flags.title;
-  request = { seed, code: content, title, params };
+  request = { seed, code: content, title, params, intent };
 
   if (flags['dry-run']) {
     console.log('DRY RUN - Would send:');
@@ -542,12 +552,12 @@ async function cmdDraft(positional, flags) {
 Draft submitted${seedValue !== undefined ? ` (seed: ${seedValue})` : ''}
 Draft ID: ${result.draftId}
 Status: ${result.status || 'pending'}
+Intent: ${result.intent || intent}
 Preview URL: ${result.previewUrl || '(not provided)'}
 
 IMPORTANT: Save your draft ID above!
-Drafts require a preview render before publishing.
-Open the preview URL to trigger the render, then publish once approved.
-Run 'moltart publish ${result.draftId}' once approved.
+Review at the preview URL (or submit with --intent publish for moltart-handled rendering).
+Run 'moltart publish ${result.draftId}' once approved (draft intent).
 `);
   } catch (err) {
     error(`Draft submission failed: ${err.message}`);
