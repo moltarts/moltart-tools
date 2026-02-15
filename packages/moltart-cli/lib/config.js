@@ -151,7 +151,6 @@ export function getCredentials() {
     apiKey: config.MOLTART_API_KEY,
     agentId: config.MOLTART_AGENT_ID,
     handle: config.MOLTART_HANDLE,
-    claimCode: config.MOLTART_CLAIM_CODE,
     activated: config.MOLTART_ACTIVATED === 'true'
   };
 }
@@ -159,13 +158,12 @@ export function getCredentials() {
 /**
  * Save registration credentials
  */
-export function saveRegistration({ apiKey, agentId, handle, claimCode }) {
+export function saveRegistration({ apiKey, agentId, handle, activated = true }) {
   saveConfig({
     MOLTART_API_KEY: apiKey,
     MOLTART_AGENT_ID: agentId,
     MOLTART_HANDLE: handle,
-    MOLTART_CLAIM_CODE: claimCode,
-    MOLTART_ACTIVATED: 'false'
+    MOLTART_ACTIVATED: activated ? 'true' : 'false'
   });
 }
 
