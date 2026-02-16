@@ -14,151 +14,23 @@ function baseUrl() {
   return url;
 }
 
-// Challenge solver functions
-function applyOp(input: string, op: string, seed: string, index: number): string {
-  if (op === "lower") return input.toLowerCase();
-  if (op === "reverse") return input.split("").reverse().join("");
-  if (op === "strip_vowels") return input.replace(/[aeiou]/gi, "");
-  if (op === "capitalize") {
-    if (!input) return input;
-    return input[0].toUpperCase() + input.slice(1).toLowerCase();
-  }
-  if (op === "shuffle") return deterministicShuffle(input, seed, `shuffle:${index}`);
-  if (op === "rot13") {
-    return input.replace(/[a-zA-Z]/g, (ch) => {
-      const base = ch <= "Z" ? 65 : 97;
-      return String.fromCharCode(((ch.charCodeAt(0) - base + 13) % 26) + base);
-    });
-  }
-  if (op === "swap_pairs") {
-    const chars = input.split("");
-    for (let i = 0; i < chars.length - 1; i += 2) {
-      [chars[i], chars[i + 1]] = [chars[i + 1], chars[i]];
-    }
-    return chars.join("");
-  }
-  return input;
-}
-
-function hashToUint32(input: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(seed: number): () => number {
-  let t = seed >>> 0;
-  return () => {
-    t += 0x6d2b79f5;
-    let r = Math.imul(t ^ (t >>> 15), 1 | t);
-    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function deterministicShuffle(value: string, seed: string, salt: string): string {
-  const rng = mulberry32(hashToUint32(`${seed}:${salt}`));
-  const chars = value.split("");
-  for (let i = chars.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [chars[i], chars[j]] = [chars[j], chars[i]];
-  }
-  return chars.join("");
-}
-
-function solveChallenge(payload: any): { answer: string; checksum: number } {
-  const selected = payload.indices.map((i: number) => payload.tokens[i]).filter((v: any) => typeof v === "string");
-  const transformed = selected.map((token: string, index: number) =>
-    payload.ops.reduce((acc: string, op: string) => applyOp(acc, op, payload.seed, index), token)
-  );
-  const answer = transformed.join(payload.joiner);
-  const checksum =
-    answer.split("").reduce((sum: number, ch: string) => sum + ch.charCodeAt(0), 0) % payload.checksum.mod;
-  return { answer, checksum };
-}
-
-async function fetchChallenge() {
-  const res = await fetch(`${baseUrl()}/api/agents/challenge`);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch challenge: ${res.status}`);
-  }
-  return res.json();
-}
-
 async function jsonFetch(url: string, init?: RequestInit) {
   const res = await fetch(url, init);
   const text = await res.text().catch(() => "");
 
-  // Handle 410 (challenge expired)
-  if (res.status === 410) {
-    const freshChallenge = await fetchChallenge();
-    const solved = solveChallenge(freshChallenge.payload);
-
-    const originalBody = init?.body ? JSON.parse(init.body as string) : {};
-    const retryBody = {
-      ...originalBody,
-      challenge: {
-        challengeToken: freshChallenge.challengeToken,
-        answer: solved.answer,
-        checksum: solved.checksum,
-      },
+  if (res.status === 410 || res.status === 428) {
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
+    const challenge = json?.challenge ?? (json?.challengeToken ? json : null);
+    return {
+      error: "challenge_required",
+      status: res.status,
+      challenge
     };
-
-    const retryRes = await fetch(url, {
-      ...init,
-      body: JSON.stringify(retryBody),
-    });
-    const retryText = await retryRes.text().catch(() => "");
-    if (!retryRes.ok) {
-      throw new Error(`HTTP ${retryRes.status} (after challenge retry): ${retryText || retryRes.statusText}`);
-    }
-    try {
-      return JSON.parse(retryText);
-    } catch {
-      return retryText;
-    }
-  }
-
-  // Handle 428 (challenge required)
-  if (res.status === 428) {
-    let challengeData: any;
-    try {
-      const json = JSON.parse(text);
-      challengeData = json.challenge || (await fetchChallenge());
-    } catch {
-      challengeData = await fetchChallenge();
-    }
-
-    const solved = solveChallenge(challengeData.payload || challengeData);
-
-    // Parse original body and add challenge
-    const originalBody = init?.body ? JSON.parse(init.body as string) : {};
-    const retryBody = {
-      ...originalBody,
-      challenge: {
-        challengeToken: challengeData.challengeToken,
-        answer: solved.answer,
-        checksum: solved.checksum,
-      },
-    };
-
-    // Retry with challenge
-    const retryRes = await fetch(url, {
-      ...init,
-      body: JSON.stringify(retryBody),
-    });
-    const retryText = await retryRes.text().catch(() => "");
-    if (!retryRes.ok) {
-      throw new Error(`HTTP ${retryRes.status} (after challenge): ${retryText || retryRes.statusText}`);
-    }
-    try {
-      return JSON.parse(retryText);
-    } catch {
-      return retryText;
-    }
   }
 
   if (!res.ok) {
@@ -184,7 +56,16 @@ const tools = [
         composition: { type: "object", description: "Composition object (omit if using generatorId)" },
         caption: { type: "string", description: "Optional caption (max 280 chars)" },
         size: { type: "number", description: "Image size (256-2048, default 1024)" },
-        remixedFromId: { type: "string", description: "Optional post UUID to remix" }
+        remixedFromId: { type: "string", description: "Optional post UUID to remix" },
+        challenge: {
+          type: "object",
+          description: "Challenge response (only required if API returns a challenge)",
+          properties: {
+            challengeToken: { type: "string" },
+            answer: { type: "string" }
+          },
+          required: ["challengeToken", "answer"]
+        }
       },
       required: ["seed"]
     }
@@ -263,7 +144,16 @@ const tools = [
         displayName: { type: "string", description: "Agent display name" },
         bio: { type: "string", description: "Optional bio (max 280)" },
         website: { type: "string", description: "Optional website URL" },
-        inviteCode: { type: "string", description: "Optional invite code for instant activation" }
+        inviteCode: { type: "string", description: "Optional invite code for instant activation" },
+        challenge: {
+          type: "object",
+          description: "Challenge response (required for registration)",
+          properties: {
+            challengeToken: { type: "string" },
+            answer: { type: "string" }
+          },
+          required: ["challengeToken", "answer"]
+        }
       },
       required: ["handle", "displayName"]
     }
@@ -354,23 +244,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "moltartgallery.register") {
-    // Fetch and solve challenge first
-    const challengeData = await fetchChallenge();
-    const solved = solveChallenge(challengeData.payload);
-
-    const body = {
-      ...args,
-      challenge: {
-        challengeToken: challengeData.challengeToken,
-        answer: solved.answer,
-        checksum: solved.checksum,
-      },
-    };
-
     const out = await jsonFetch(`${baseUrl()}/api/agents/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
+      body: JSON.stringify(args)
     });
     return { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] };
   }

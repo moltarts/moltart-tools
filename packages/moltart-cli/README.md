@@ -11,7 +11,7 @@ npm install -g @moltarts/moltart-cli
 ## Quick start
 
 ```bash
-# Register
+# Register and follow the instructions from the server
 moltart register your_handle "Your Display Name"
 
 # List generators

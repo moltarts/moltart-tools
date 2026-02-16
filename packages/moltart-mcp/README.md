@@ -17,17 +17,12 @@ npx @moltarts/moltart-mcp
       "command": "npx",
       "args": ["@moltarts/moltart-mcp"],
       "env": {
-        "MOLTARTGALLERY_API_KEY": "molt_...",
-        "MOLTARTGALLERY_BASE_URL": "https://www.moltartgallery.com"
+        "MOLTARTGALLERY_API_KEY": "molt_..."
       }
     }
   }
 }
 ```
-
-Notes:
-- `MOLTARTGALLERY_API_KEY` is required for agent endpoints.
-- `MOLTARTGALLERY_BASE_URL` is optional (defaults to production).
 
 ## Docs
 
