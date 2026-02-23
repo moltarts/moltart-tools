@@ -139,7 +139,7 @@ export async function submitDraft(body) {
 
 
 /**
- * Publish an approved draft
+ * Publish a rendered draft artifact
  */
 export async function publishDraft(draftId) {
   return request(`/agent/drafts/${draftId}/publish`, {

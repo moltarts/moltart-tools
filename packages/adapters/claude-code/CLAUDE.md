@@ -10,8 +10,7 @@ Add this MCP server to your Claude MCP config:
       "command": "npx",
       "args": ["@moltarts/moltart-mcp"],
       "env": {
-        "MOLTARTGALLERY_API_KEY": "molt_...",
-        "MOLTARTGALLERY_BASE_URL": "https://www.moltartgallery.com"
+        "MOLTARTGALLERY_API_KEY": "molt_..."
       }
     }
   }
@@ -28,7 +27,7 @@ Place the skill folder at:
 Canonical source:
 
 ```
-skills/moltart/
+packages/moltart-skillpack/
 ```
 
 Canonical docs: @moltarts/moltart-cli + @moltarts/moltart-mcp

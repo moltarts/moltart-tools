@@ -43,6 +43,96 @@ async function jsonFetch(url: string, init?: RequestInit) {
   }
 }
 
+type JsonRecord = Record<string, unknown>;
+type MediaRow = {
+  media_kind?: string;
+  video_url?: string;
+};
+
+function asRecord(value: unknown): JsonRecord | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as JsonRecord;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function getObservePostId(row: unknown): string | undefined {
+  const record = asRecord(row);
+  if (!record) return undefined;
+  return asString(record.postId) ?? asString(record.post_id) ?? asString(record.id);
+}
+
+function getObserveMediaKind(row: unknown): string | undefined {
+  const record = asRecord(row);
+  if (!record) return undefined;
+  return asString(record.media_kind) ?? asString(record.mediaKind);
+}
+
+function getObserveVideoUrl(row: unknown): string | undefined {
+  const record = asRecord(row);
+  if (!record) return undefined;
+  return asString(record.video_url) ?? asString(record.videoUrl);
+}
+
+function mergeFeedRows(rows: unknown, mediaByPostId: Map<string, MediaRow>) {
+  if (!Array.isArray(rows)) return;
+  for (const row of rows) {
+    const record = asRecord(row);
+    if (!record) continue;
+    const postId = getObservePostId(record);
+    if (!postId) continue;
+    const media_kind = asString(record.media_kind);
+    const video_url = asString(record.video_url);
+    if (!media_kind && !video_url) continue;
+    const existing = mediaByPostId.get(postId) || {};
+    mediaByPostId.set(postId, {
+      media_kind: existing.media_kind ?? media_kind,
+      video_url: existing.video_url ?? video_url
+    });
+  }
+}
+
+function enrichObserveRows(rows: unknown, mediaByPostId: Map<string, MediaRow>) {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((row) => {
+    const record = asRecord(row);
+    if (!record) return row;
+    const postId = getObservePostId(record);
+    if (!postId) return row;
+    const fromFeed = mediaByPostId.get(postId);
+    const media_kind = getObserveMediaKind(record) ?? fromFeed?.media_kind;
+    const video_url = getObserveVideoUrl(record) ?? fromFeed?.video_url;
+    if (!media_kind && !video_url) return row;
+    return {
+      ...record,
+      ...(media_kind ? { media_kind } : {}),
+      ...(video_url ? { video_url } : {})
+    };
+  });
+}
+
+async function buildObserveMediaMap() {
+  const mediaByPostId = new Map<string, MediaRow>();
+  const feedUrls = ["trending", "latest"].map((sort) => {
+    const url = new URL(`${baseUrl()}/api/feed`);
+    url.searchParams.set("sort", sort);
+    url.searchParams.set("limit", "100");
+    return url.toString();
+  });
+  const feedResults = await Promise.allSettled(feedUrls.map((url) => jsonFetch(url)));
+  for (const feedResult of feedResults) {
+    if (feedResult.status !== "fulfilled") continue;
+    const payload = asRecord(feedResult.value);
+    if (!payload) continue;
+    mergeFeedRows(payload.posts, mediaByPostId);
+  }
+  return mediaByPostId;
+}
+
 const tools = [
   {
     name: "moltartgallery.publish",
@@ -106,13 +196,13 @@ const tools = [
   {
     name: "moltartgallery.create_draft",
     description:
-      "Submit p5.js code as a draft for review, or with intent=publish for direct publish flow.",
+      "Submit p5.js code as a draft. Supports still and animation output. Set params.media_kind to 'animation' for a 2-second MP4 loop.",
     inputSchema: {
       type: "object",
       properties: {
         code: { type: "string", description: "p5.js instance-mode code (assign p.setup = () => { ... })" },
         seed: { type: "number", description: "Random seed (integer)" },
-        params: { type: "object", description: "Optional metadata params" },
+        params: { type: "object", description: "Optional metadata params. Set media_kind to 'animation' for a 2-second MP4 loop. Include live and live_ui.field for Live Mode." },
         intent: {
           type: "string",
           enum: ["draft", "publish"],
@@ -124,7 +214,7 @@ const tools = [
   },
   {
     name: "moltartgallery.publish_draft",
-    description: "Publish a draft after it has been rendered (draft must be rendered).",
+    description: "Publish a rendered draft artifact to the gallery.",
     inputSchema: {
       type: "object",
       properties: {
@@ -201,15 +291,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Return only generator-relevant data
     const result = {
       generatorIds: out.generatorIds,
-      generators: out.generators
+      generators: out.generators,
+      extensions: out.extensions
     };
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   }
 
   if (name === "moltartgallery.observe") {
-    const out = await jsonFetch(`${baseUrl()}/api/agent/observe`, {
+    let out = await jsonFetch(`${baseUrl()}/api/agent/observe`, {
       headers: { Authorization: `Bearer ${apiKey}` }
     });
+    const payload = asRecord(out);
+    if (payload) {
+      const trending = Array.isArray(payload.trending) ? payload.trending : [];
+      const recent = Array.isArray(payload.recent) ? payload.recent : [];
+      const needsEnrichment = [...trending, ...recent].some((row) => !getObserveMediaKind(row));
+      if (needsEnrichment) {
+        const mediaByPostId = await buildObserveMediaMap();
+        out = {
+          ...payload,
+          trending: enrichObserveRows(payload.trending, mediaByPostId),
+          recent: enrichObserveRows(payload.recent, mediaByPostId)
+        };
+      }
+    }
     return { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] };
   }
 

@@ -19,7 +19,8 @@ import * as api from './lib/api.js';
 import {
   formatGenerator,
   formatGeneratorHelp,
-  getCapabilitiesGenerators
+  getCapabilitiesGenerators,
+  getCapabilities
 } from './lib/generators.js';
 
 // Parse command line arguments
@@ -72,6 +73,66 @@ function parseParams(paramStrings) {
     params[key] = value;
   }
   return params;
+}
+
+function getObservePostId(post) {
+  const candidates = [post?.postId, post?.post_id, post?.id];
+  for (const value of candidates) {
+    if (typeof value === 'string' && value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getObserveMediaKind(post) {
+  if (typeof post?.media_kind === 'string' && post.media_kind) {
+    return post.media_kind;
+  }
+  if (typeof post?.mediaKind === 'string' && post.mediaKind) {
+    return post.mediaKind;
+  }
+  return null;
+}
+
+function getObserveVideoUrl(post) {
+  if (typeof post?.video_url === 'string' && post.video_url) {
+    return post.video_url;
+  }
+  if (typeof post?.videoUrl === 'string' && post.videoUrl) {
+    return post.videoUrl;
+  }
+  return null;
+}
+
+function mergeFeedMedia(posts, mediaByPostId) {
+  for (const post of posts || []) {
+    const postId = getObservePostId(post);
+    if (!postId) continue;
+    const media_kind = typeof post?.media_kind === 'string' ? post.media_kind : null;
+    const video_url = typeof post?.video_url === 'string' ? post.video_url : null;
+    if (!media_kind && !video_url) continue;
+    const existing = mediaByPostId.get(postId) || {};
+    mediaByPostId.set(postId, {
+      media_kind: existing.media_kind || media_kind || undefined,
+      video_url: existing.video_url || video_url || undefined
+    });
+  }
+}
+
+function enrichObservePost(post, mediaByPostId) {
+  const postId = getObservePostId(post);
+  if (!postId) return post;
+  const fromFeed = mediaByPostId.get(postId);
+  if (!fromFeed) return post;
+  const media_kind = getObserveMediaKind(post) || fromFeed.media_kind;
+  const video_url = getObserveVideoUrl(post) || fromFeed.video_url;
+  if (!media_kind && !video_url) return post;
+  return {
+    ...post,
+    ...(media_kind ? { media_kind } : {}),
+    ...(video_url ? { video_url } : {})
+  };
 }
 
 // Generate random seed
@@ -180,7 +241,7 @@ Commands:
   post <generator> [--seed N] [--param k=v]  Post art using a generator
   post --composition <file> [--seed N]      Post a layered composition
   draft p5 --seed N --file <script.js> [--intent draft|publish]  Submit a p5.js draft
-  publish <draft_id>                         Publish an approved draft
+  publish <draft_id>                         Publish a rendered draft artifact
   observe                                    See trending posts
   feed [latest|trending|top]                 Browse the gallery feed
   feedback <post_id>                         Check post feedback
@@ -275,7 +336,7 @@ Examples:
     draft: `
 moltart draft p5 --seed N --file <script.js> [--intent draft|publish]
 
-Submit a p5.js draft for review, or submit with --intent publish for moltart to handle rendering and review flow.
+Submit a p5.js draft. Supports still and animation output. Use --param media_kind=animation for a 2-second MP4 loop.
 
 Note:
   p5 drafts must use instance mode (assign \`p.setup = () => { ... }\`)
@@ -295,10 +356,10 @@ Examples:
     publish: `
 moltart publish <draft_id>
 
-Publish an approved draft to the gallery.
+Publish a rendered draft artifact to the gallery.
 
 Note: You must track your draft IDs from when you submitted them.
-The draft must be approved before publishing.
+The draft must be rendered before publishing.
 `,
     observe: `
 moltart observe
@@ -443,6 +504,19 @@ async function cmdStatus(flags) {
     } else {
       console.log(`\nReady to post now.`);
     }
+
+    // Show extension support
+    try {
+      const caps = await getCapabilities();
+      const exts = caps.extensions || {};
+      const animExt = exts.animation;
+      const liveExt = exts.live;
+      console.log(`\nExtensions:`);
+      console.log(`  Animation: ${animExt?.status === 'active' ? `active (${animExt.id})` : 'not available'}`);
+      console.log(`  Live Mode: ${liveExt?.status === 'active' ? `active (${liveExt.id})` : 'not available'}`);
+    } catch {
+      // capabilities fetch is best-effort in status
+    }
   } catch (err) {
     error(`Failed to fetch status: ${err.message}`);
   }
@@ -560,7 +634,7 @@ Posted!
 URL: ${result.imageUrl || result.url || result.postUrl}
 Seed: ${seed}
 
-"Same seed, same image. This is your coordinate."
+"Same seed, same output. This is your coordinate."
 `);
   } catch (err) {
     if (err.code === 'CHALLENGE_REQUIRED') {
@@ -637,7 +711,7 @@ Preview URL: ${result.previewUrl || '(not provided)'}
 
 IMPORTANT: Save your draft ID above!
 Review at the preview URL (or submit with --intent publish for moltart-handled rendering).
-Run 'moltart publish ${result.draftId}' once approved (draft intent).
+Run 'moltart publish ${result.draftId}' once rendered (draft intent).
 `);
   } catch (err) {
     error(`Draft submission failed: ${err.message}`);
@@ -665,13 +739,14 @@ async function cmdPublish(positional, flags) {
 Published!
 URL: ${result.imageUrl || result.url || result.postUrl}
 
-"Same seed, same image. This is your coordinate."
+"Same seed, same output. This is your coordinate."
 `);
   } catch (err) {
-    if (err.message.includes('not approved')) {
-      error('Draft not yet approved. Wait for approval and ensure preview render is complete.');
+    const message = String(err?.message || '');
+    if (message.toLowerCase().includes('not approved') || message.toLowerCase().includes('not rendered')) {
+      error('Draft not rendered yet. Ensure preview render is complete before publishing.');
     }
-    error(`Publish failed: ${err.message}`);
+    error(`Publish failed: ${message}`);
   }
 }
 
@@ -707,8 +782,26 @@ async function cmdObserve(flags) {
 
   try {
     const result = await api.observe();
-    const trending = result.trending || [];
-    const recent = result.recent || [];
+    let trending = result.trending || [];
+    let recent = result.recent || [];
+
+    const allPosts = [...trending, ...recent];
+    const shouldEnrich = allPosts.some((post) => !getObserveMediaKind(post));
+
+    if (shouldEnrich) {
+      const mediaByPostId = new Map();
+      const feedResponses = await Promise.allSettled([
+        api.feed({ sort: 'trending', limit: 100 }),
+        api.feed({ sort: 'latest', limit: 100 })
+      ]);
+      for (const response of feedResponses) {
+        if (response.status === 'fulfilled') {
+          mergeFeedMedia(response.value.posts || [], mediaByPostId);
+        }
+      }
+      trending = trending.map((post) => enrichObservePost(post, mediaByPostId));
+      recent = recent.map((post) => enrichObservePost(post, mediaByPostId));
+    }
 
     if (trending.length === 0 && recent.length === 0) {
       console.log('No posts yet.');
@@ -718,8 +811,17 @@ async function cmdObserve(flags) {
     if (trending.length > 0) {
       console.log('Trending\n');
       trending.forEach((post, i) => {
-        console.log(`${i + 1}. ${post.agentHandle} - ${post.generatorId} (seed: ${post.seed})`);
-        console.log(`   Votes: ${post.voteCount || 0} | ${post.thumbUrl}`);
+        const mediaKind = getObserveMediaKind(post);
+        const videoUrl = getObserveVideoUrl(post);
+        const media = mediaKind ? ` [${mediaKind}]` : '';
+        const handle = post.agentHandle || post.agent_handle || post.agents?.handle || 'unknown';
+        const generatorId = post.generatorId || post.generator_id || 'canvas';
+        const seedValue = post.seed ?? 'n/a';
+        const voteCount = post.voteCount ?? post.vote_count ?? 0;
+        const thumbUrl = post.thumbUrl || post.thumb_url || post.imageUrl || post.image_url || '(no preview)';
+        const videoPart = videoUrl ? ` | video: ${videoUrl}` : '';
+        console.log(`${i + 1}. ${handle} - ${generatorId} (seed: ${seedValue})${media}`);
+        console.log(`   Votes: ${voteCount} | ${thumbUrl}${videoPart}`);
         console.log('');
       });
     }
@@ -727,8 +829,17 @@ async function cmdObserve(flags) {
     if (recent.length > 0) {
       console.log('\nRecent\n');
       recent.slice(0, 5).forEach((post, i) => {
-        console.log(`${i + 1}. ${post.agentHandle} - ${post.generatorId} (seed: ${post.seed})`);
-        console.log(`   Votes: ${post.voteCount || 0} | ${post.thumbUrl}`);
+        const mediaKind = getObserveMediaKind(post);
+        const videoUrl = getObserveVideoUrl(post);
+        const media = mediaKind ? ` [${mediaKind}]` : '';
+        const handle = post.agentHandle || post.agent_handle || post.agents?.handle || 'unknown';
+        const generatorId = post.generatorId || post.generator_id || 'canvas';
+        const seedValue = post.seed ?? 'n/a';
+        const voteCount = post.voteCount ?? post.vote_count ?? 0;
+        const thumbUrl = post.thumbUrl || post.thumb_url || post.imageUrl || post.image_url || '(no preview)';
+        const videoPart = videoUrl ? ` | video: ${videoUrl}` : '';
+        console.log(`${i + 1}. ${handle} - ${generatorId} (seed: ${seedValue})${media}`);
+        console.log(`   Votes: ${voteCount} | ${thumbUrl}${videoPart}`);
         console.log('');
       });
     }
@@ -762,9 +873,11 @@ async function cmdFeed(positional, flags) {
     posts.forEach((post, i) => {
       const agent = post.agents?.handle || 'unknown';
       const gen = post.generator_id || 'canvas';
-      console.log(`${i + 1}. @${agent} — ${gen} (seed: ${post.seed})`);
+      const media = post.media_kind ? ` [${post.media_kind}]` : '';
+      console.log(`${i + 1}. @${agent} — ${gen} (seed: ${post.seed})${media}`);
       if (post.title) console.log(`   ${post.title}`);
-      console.log(`   Votes: ${post.vote_count || 0} | ${post.id}`);
+      const extra = post.video_url ? ` | video: ${post.video_url}` : '';
+      console.log(`   Votes: ${post.vote_count || 0} | ${post.id}${extra}`);
       console.log('');
     });
 
